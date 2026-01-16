@@ -1,4 +1,15 @@
-use std::io::{self, Write};
+use tokio::io::{
+    AsyncReadExt,
+    AsyncWriteExt,
+    BufReader,       // main: read from stdin
+    AsyncBufReadExt  // main: read from stdin
+};
+use tokio::net::TcpStream;
+use std::io::{self, Write};  // main: stdout flush
+
+struct ConnectionContext {
+    socket: TcpStream,
+}
 
 fn assert_length(n: usize, argv: &Vec<&str>, err: &str) -> bool {
     if argv.len() < n {
@@ -38,7 +49,7 @@ fn help() {
     print!("     Get recent messages from the channel.\n");
 }
 
-fn connect(host: &str) {
+async fn connect(host: &str) -> io::Result<ConnectionContext> {
     let parts = host.split(":").collect::<Vec<_>>();
     let ip    = parts[0];
     let port  = if parts.len() > 2 {
@@ -46,19 +57,27 @@ fn connect(host: &str) {
     } else {
         /* default = */ 9983
     };
-    print!("OK, connecting to {}:{}\n", ip, port);
+
+    let server = format!("{}:{}", ip, port);
+    println!("OK, connecting to {}", server);
+
+    let socket = TcpStream::connect(server).await?;
+    Ok(ConnectionContext{socket: socket})
 }
 
-fn main() -> io::Result<()> {
+#[tokio::main]
+async fn main() -> io::Result<()> {
     greet();
     let mut buf = String::new();
+
+    let mut ctx: Option<ConnectionContext> = None;
     loop {
         // write prompt 
         print!(">> ");
-        io::stdout().flush();
+        let _ = io::stdout().flush();
         // read command
         buf.clear();
-        io::stdin().read_line(&mut buf)?;
+        std::io::stdin().read_line(&mut buf)?;
         // parse
         let command = buf.as_str().trim();
         let argv    = command.split(" ").collect::<Vec<_>>();
@@ -71,7 +90,7 @@ fn main() -> io::Result<()> {
                 if !assert_length(2, &argv, "usage: connect <ip>") {
                     continue;
                 }
-                connect(argv[1]);
+                ctx = Some(connect(argv[1]).await?);
             }
             "login" => {
             }
