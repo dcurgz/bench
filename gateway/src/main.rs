@@ -1,5 +1,21 @@
 use tokio::net::{TcpListener, TcpStream};
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
+use tokio::io::BufReader; // handle_connection
+
+use common::types::identity::{
+    Hello,
+    HelloAck,
+    hello,
+    Identify,
+    IdentifyAck,
+    identify_ack,
+};
+use common::types::chat::{
+    GetMessages,
+    GiveMessages,
+    SendMessage,
+    send_message_ack,
+};
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
@@ -15,19 +31,46 @@ async fn main() -> std::io::Result<()> {
     }
 }
 
-async fn handle_connection(socket: TcpStream) -> io::Result<()> {
-    println!("client connected");
+async fn handle_connection(socket: TcpStream) {
+    let addr = socket
+        .peer_addr()
+        .unwrap()
+        .to_string();
+    println!("{addr}> connected");
     let (mut rd, mut wr) = io::split(socket);
+    let mut type_id: i32 = 0;
     let mut buf = vec![0; 1024];
 
     loop {
-        let n = rd.read(&mut buf).await?;
+        // get packet type
+        type_id = rd.read_i32().await.unwrap();
+
+        match type_id {
+            common::types::PACKET_HELLO => {
+                println!("{addr}> Hello");
+            }
+            common::types::PACKET_IDENTIFY => {
+                println!("{addr}> Identify");
+            }
+            common::types::PACKET_GET_MESSAGES => {
+                println!("{addr}> GetMessages");
+            }
+            common::types::PACKET_SEND_MESSAGE => {
+                println!("{addr}> SendMessage");
+            }
+            _ => {
+                println!("{addr}> ???");
+            }
+        }
+
+        let n = rd.read(&mut buf).await.unwrap();
 
         if n == 0 {
-            break Ok(());
+            break
         }
 
         println!("read {} bytes", n);
     }
-}
 
+    println!("{addr}> disconnected");
+}

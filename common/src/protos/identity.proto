@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+// server-bound
+
+message Hello {
+  enum Version {
+    V0_1 = 0;
+  }
+  Version client_version = 1;
+}
+
+message Identify {
+  string username = 1;
+}
+
+// client-bound
+
+message HelloAck {
+  enum Version {
+    V0_1 = 0;
+  }
+  Version gateway_version = 1;
+}
+
+message IdentifyAck {
+  enum Action {
+    ACCEPT = 0;
+    REJECT = 1;
+  }
+  Action action = 1;
+}
+

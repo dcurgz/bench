@@ -4,11 +4,29 @@ use tokio::io::{
     BufReader,       // main: read from stdin
     AsyncBufReadExt  // main: read from stdin
 };
-use tokio::net::TcpStream;
-use std::io::{self, Write};  // main: stdout flush
+use tokio::net::{TcpStream};  // handle_connection
+use std::io::{Write};  // main: stdout flush
+use std::net::SocketAddr;
+use protobuf::{EnumOrUnknown, Message}; // connect
+ 
+use common::types::{PACKET_HELLO};
+use common::types::identity::{
+    Hello,
+    HelloAck,
+    hello,
+    Identify,
+    IdentifyAck,
+    identify_ack,
+};
+use common::types::chat::{
+    GetMessages,
+    GiveMessages,
+    SendMessage,
+    send_message_ack,
+};
 
 struct ConnectionContext {
-    socket: TcpStream,
+    addr: SocketAddr,
 }
 
 fn assert_length(n: usize, argv: &Vec<&str>, err: &str) -> bool {
@@ -49,32 +67,55 @@ fn help() {
     print!("     Get recent messages from the channel.\n");
 }
 
-async fn connect(host: &str) -> io::Result<ConnectionContext> {
-    let parts = host.split(":").collect::<Vec<_>>();
-    let ip    = parts[0];
-    let port  = if parts.len() > 2 {
-        parts[1].parse::<i32>().unwrap()
-    } else {
-        /* default = */ 9983
-    };
+async fn connect(host: &str) -> std::io::Result<ConnectionContext> {
+    print!("connecting to {host} ... ");
+    let socket = TcpStream::connect(host).await?;
+    let addr: SocketAddr = socket
+        .peer_addr()
+        .unwrap();
+    println!("OK");
+    tokio::spawn(handle_connection(socket));
+    Ok(ConnectionContext{addr: addr})
+}
 
-    let server = format!("{}:{}", ip, port);
-    println!("OK, connecting to {}", server);
+async fn handle_connection(socket: TcpStream) {
+    let addr = socket
+        .peer_addr()
+        .unwrap()
+        .to_string();
+    let (mut rd, mut wr) = tokio::io::split(socket);
+    let mut buf = vec![0; 1024];
 
-    let socket = TcpStream::connect(server).await?;
-    Ok(ConnectionContext{socket: socket})
+    let mut hello = Hello::new();
+    hello.client_version = EnumOrUnknown::new(hello::Version::V0_1);
+    let hello_bytes: Vec<u8> = hello.write_to_bytes().unwrap();
+    wr.write_i32(PACKET_HELLO).await;
+    wr.write_all(&hello_bytes).await;
+    wr.flush().await;
+
+    loop {
+        let n = rd.read(&mut buf).await.unwrap();
+
+        if n == 0 {
+            break
+        }
+
+        println!("read {} bytes", n);
+    }
+
+    println!("disconnected");
 }
 
 #[tokio::main]
-async fn main() -> io::Result<()> {
+async fn main() -> std::io::Result<()> {
     greet();
     let mut buf = String::new();
 
     let mut ctx: Option<ConnectionContext> = None;
     loop {
         // write prompt 
-        print!(">> ");
-        let _ = io::stdout().flush();
+        //print!(">> ");
+        //let _ = std::io::stdout().flush();
         // read command
         buf.clear();
         std::io::stdin().read_line(&mut buf)?;
