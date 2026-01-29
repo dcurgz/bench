@@ -15,11 +15,13 @@
       let
         pkgs = nixpkgs.legacyPackages.${system};
         naersk' = pkgs.callPackage naersk { };
+        inherit (nixpkgs) lib;
+        inherit (pkgs) stdenv;
       in
       {
         packages.default = naersk'.buildPackage {
           src = ./.;
-          #nativeBuildInputs = with pkgs; [ protobuf_33 ];
+          buildInputs = with pkgs; lib.optionals stdenv.isDarwin [ libiconv ];
         };
       });
 }
