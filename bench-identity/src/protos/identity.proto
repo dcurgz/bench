@@ -1,61 +1,114 @@
 syntax = "proto3";
 
+// A signer-key identity.
+// If used to authenticate a user, it is either a master key or a device key:
+// - A master key is the root identity for that user. It is used to sign
+//   sensitive actions such as authenticated device additions/revocations and
+//   username changes. The master key is derived from a passphrase. The user can
+//   rotate their master key at any time.
+// - A device key belongs to a specific device owned by the user. Messages are
+//   encrypted for specific device keys. A device key can be revoked at any time,
+//   at which point, peers should no longer send messages to that device.
 message Identity {
   enum KeyType {
     KEY_TYPE_UNSPECIFIED = 0;
     KEY_TYPE_ED25519     = 1;
   }
 
-  bytes   public_key      = 1;
-  KeyType public_key_type = 2;
+  optional bytes   public_key      = 1;
+  optional KeyType public_key_type = 2;
 }
 
-message DeviceEntry {
+message RotateKeyAction {
+  optional Identity new_master_key = 1;
+}
+
+message DeviceAction {
+  optional Identity device_key = 1;
+}
+
+message UsernameAction {
+  optional string username = 1;
+}
+
+// A master action is part of an action chain. It is verifiable by peers as
+// each action specifies the signature of the previous action, and peers will
+// cache the action chains for identities they've already encountered.
+// We only use the action chain for sensitive actions where an audit log could
+// be useful to peers.
+// It is theoretically possible for two user-controlled devices to become
+// desynchronized and publish equally valid but distinct master action chains.
+// In this case, peers will reject the identity update, and the user devices
+// will reconcile the change: the version of the action change that has a lower
+// timestamp or, if the timestamps are identical, a lower byte hash, will be
+// used as the base and the other device will replay their actions on top of
+// it.
+// Note that this situation (where only the last master action differs) will
+// not flag a warning to peers; they will silently reject the identity change.
+// But in cases more generally where the cached master action chain is not the
+// base for a new identity update, peers will render a UI notification. If the
+// user with the chain mismatch is trusted, the notification will be large and
+// explicit; if the user is untrusted (default), it will be a small warning
+// symbol next to their messages.
+message MasterAction {
   enum Action {
-    DEVICE_ACTION_UNSPECIFIED = 0;
-    DEVICE_ACTION_ADD         = 1;
-    DEVICE_ACTION_REVOKE      = 1;
+    MASTER_ACTION_UNSPECIFIED     = 0;
+    // When the master key is rotated, the current master key becomes
+    // untrusted, and peers must use the new key provided by the rotation
+    // action to verify all subsequent actions.
+    // Master key rotation happens during passphrase or hardware key change.
+    MASTER_ACTION_ROTATE_KEY      = 1;
+    // A new device is added to the user's device list. Peers will use the
+    // device key to send messages (one message sent per device).
+    MASTER_ACTION_ADD_DEVICE      = 2;
+    // A current device key is revoked. Peers will no longer send messages to
+    // this device key, and subsequent messages from this device will be
+    // ignored.
+    MASTER_ACTION_REVOKE_DEVICE   = 3;
+    // The username is changed. As this is a master action, the username change
+    // history is auditable.
+    MASTER_ACTION_CHANGE_USERNAME = 4;
   }
-  uint32   counter        = 1;
-  uint64   created_at     = 2;
-  Action   action         = 3;
-  Identity device_key     = 4;
-  bytes    prev_signature = 5; // device_entry_signature in previous SignedDeviceEntry
+  optional uint32 counter         = 1;
+  optional uint64 created_at      = 2;
+  optional Identity device_origin = 3;
+  optional Action action          = 4;
+  optional bytes  prev_signature  = 5; // previous SignedMasterAction signature
+  oneof payload {
+    RotateKeyAction rotate_key = 6;
+    DeviceAction    device     = 7;
+    UsernameAction  username   = 8;
+  };
 }
 
-message SignedDeviceEntry {
-  bytes device_entry_bytes     = 1;
-  bytes device_entry_signature = 2; // sign(device_entry_bytes, master key)
+message SignedMasterAction {
+  optional bytes master_action_bytes     = 1;
+  optional bytes master_action_signature = 2; // sign(master_action_bytes, master key)
 }
 
-message UsernameEntry {
-  uint32 counter        = 1;
-  uint64 created_at     = 2;
-  string username       = 3;
-  bytes  prev_signature = 4; // username_entry_signature in previous SignedUsernameEntry
-}
-
-message SignedUsernameEntry {
-  bytes username_entry_bytes     = 1;
-  bytes username_entry_signature = 2; // sign(username_entry_bytes, master key)
-}
-
+// The user metadata is signed with the master key, but it does not belong to a
+// chain.
 message UserMetadata {
   enum Version {
     VERSION_UNSPECIFIED = 0;
     VERSION_1           = 1;
   }
-  Version  version      = 1;
+  optional Version version      = 1;
   //V1
-  uint64   updated_at   = 2;
-  string   display_name = 3;
-  bytes    avatar_hash  = 4;
+  //peers must verify updated_at is newer than their cached metadata to
+  //circumvent replay attacks
+  optional uint64  updated_at   = 2;
+  optional string  display_name = 3;
+  optional bytes   avatar_hash  = 4;
+}
+
+message SignedUserMetadata {
+  optional bytes metadata_bytes      = 1; // serialized UserMetadata
+  optional bytes metadata_signature  = 2; // sign(metadata_bytes, master key)
 }
 
 message UserIdentity {
-  Identity master_key         = 1;
-  repeated SignedDeviceEntry   device_chain   = 2; 
-  repeated SignedUsernameEntry username_chain = 3;
-  bytes    metadata_bytes     = 4; // serialized UserMetadata
-  bytes    metadata_signature = 5; // sign(metadata_bytes, valid device key)
+  optional Identity           master_key   = 1;
+  repeated SignedMasterAction action_chain = 2; 
+  optional SignedUserMetadata metadata     = 3;
 }
