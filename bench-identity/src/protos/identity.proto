@@ -1,0 +1,61 @@
+syntax = "proto3";
+
+message Identity {
+  enum KeyType {
+    KEY_TYPE_UNSPECIFIED = 0;
+    KEY_TYPE_ED25519     = 1;
+  }
+
+  bytes   public_key      = 1;
+  KeyType public_key_type = 2;
+}
+
+message DeviceEntry {
+  enum Action {
+    DEVICE_ACTION_UNSPECIFIED = 0;
+    DEVICE_ACTION_ADD         = 1;
+    DEVICE_ACTION_REVOKE      = 1;
+  }
+  uint32   counter        = 1;
+  uint64   created_at     = 2;
+  Action   action         = 3;
+  Identity device_key     = 4;
+  bytes    prev_signature = 5; // device_entry_signature in previous SignedDeviceEntry
+}
+
+message SignedDeviceEntry {
+  bytes device_entry_bytes     = 1;
+  bytes device_entry_signature = 2; // sign(device_entry_bytes, master key)
+}
+
+message UsernameEntry {
+  uint32 counter        = 1;
+  uint64 created_at     = 2;
+  string username       = 3;
+  bytes  prev_signature = 4; // username_entry_signature in previous SignedUsernameEntry
+}
+
+message SignedUsernameEntry {
+  bytes username_entry_bytes     = 1;
+  bytes username_entry_signature = 2; // sign(username_entry_bytes, master key)
+}
+
+message UserMetadata {
+  enum Version {
+    VERSION_UNSPECIFIED = 0;
+    VERSION_1           = 1;
+  }
+  Version  version      = 1;
+  //V1
+  uint64   updated_at   = 2;
+  string   display_name = 3;
+  bytes    avatar_hash  = 4;
+}
+
+message UserIdentity {
+  Identity master_key         = 1;
+  repeated SignedDeviceEntry   device_chain   = 2; 
+  repeated SignedUsernameEntry username_chain = 3;
+  bytes    metadata_bytes     = 4; // serialized UserMetadata
+  bytes    metadata_signature = 5; // sign(metadata_bytes, valid device key)
+}
